@@ -371,14 +371,13 @@ py_str_to_c_str(PyObject *value, const char *encoding)
 }
 
 #define c_str_to_py_str(c_str) \
-        PyUnicode_DecodeUTF8(c_str, strlen(c_str), "strict")
+        PyString_FromString(c_str)
 
 #define py_path_to_c_str(py_path) \
         py_str_to_c_str(py_path, Py_FileSystemDefaultEncoding)
 
 #define c_str_to_py_path(c_str) \
-        PyUnicode_Decode(c_str, strlen(c_str), \
-                         Py_FileSystemDefaultEncoding, "strict")
+        PyString_FromString(c_str)
 
 
 static int
@@ -611,12 +610,11 @@ Repository_walk(Repository *self, PyObject *args)
 }
 
 static PyObject *
-build_person(const git_signature *signature, const char *encoding)
+build_person(const git_signature *signature)
 {
     PyObject *name;
 
-    name = PyUnicode_Decode(signature->name, strlen(signature->name),
-                            encoding, "strict");
+    name = c_str_to_py_str(signature->name);
     return Py_BuildValue("(NsLi)", name, signature->email,
                          signature->when.time, signature->when.offset);
 }
@@ -1154,19 +1152,16 @@ Commit_get_message_encoding(Commit *commit)
     if (encoding == NULL)
         Py_RETURN_NONE;
 
-    return PyUnicode_DecodeASCII(encoding, strlen(encoding), "strict");
+    return c_str_to_py_str(encoding);
 }
 
 static PyObject *
 Commit_get_message(Commit *commit)
 {
-    const char *message, *encoding;
+    const char *message;
 
     message = git_commit_message(commit->commit);
-    encoding = git_commit_message_encoding(commit->commit);
-    if (encoding == NULL)
-        encoding = "utf-8";
-    return PyUnicode_Decode(message, strlen(message), encoding, "strict");
+    return c_str_to_py_str(message);
 }
 
 static PyObject *
@@ -1185,26 +1180,18 @@ static PyObject *
 Commit_get_committer(Commit *commit)
 {
     const git_signature *signature;
-    const char *encoding;
 
     signature = git_commit_committer(commit->commit);
-    encoding = git_commit_message_encoding(commit->commit);
-    if (encoding == NULL)
-        encoding = "utf-8";
-    return build_person(signature, encoding);
+    return build_person(signature);
 }
 
 static PyObject *
 Commit_get_author(Commit *commit)
 {
     const git_signature *signature;
-    const char *encoding;
 
     signature = git_commit_author(commit->commit);
-    encoding = git_commit_message_encoding(commit->commit);
-    if (encoding == NULL)
-        encoding = "utf-8";
-    return build_person(signature, encoding);
+    return build_person(signature);
 }
 
 static PyObject *
@@ -1732,7 +1719,7 @@ Tag_get_tagger(Tag *tag)
     const git_signature *signature = git_tag_tagger(tag->tag);
     if (!signature)
         Py_RETURN_NONE;
-    return build_person(signature, "utf-8");
+    return build_person(signature);
 }
 
 static PyObject *
