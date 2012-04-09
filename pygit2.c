@@ -1063,6 +1063,30 @@ Object_get_type(Object *self)
 }
 
 static PyObject *
+Object_get_size(Object *self)
+{
+    size_t len;
+    git_otype type;
+    const git_oid *oid;
+    int err;
+    PyObject *aux = NULL;
+
+    oid = git_object_id(self->obj);
+    assert(oid);
+
+    err = git_odb_read_header(&len, &type,
+                              git_repository_database(self->repo->repo), oid);
+    if (err < 0) {
+        aux = git_oid_to_py_str(oid);
+        Error_set_py_obj(err, aux);
+        Py_XDECREF(aux);
+        return NULL;
+    }
+
+    return PyInt_FromSize_t(len);
+}
+
+static PyObject *
 Object_read_raw(Object *self)
 {
     const git_oid *oid;
@@ -1093,6 +1117,7 @@ static PyGetSetDef Object_getseters[] = {
     {"oid", (getter)Object_get_oid, NULL, "object id", NULL},
     {"hex", (getter)Object_get_hex, NULL, "hex oid", NULL},
     {"type", (getter)Object_get_type, NULL, "type number", NULL},
+    {"size", (getter)Object_get_size, NULL, "size", NULL},
     {NULL}
 };
 
