@@ -1660,6 +1660,35 @@ Repository_reset(Repository *self, PyObject* args)
     Py_RETURN_NONE;
 }
 
+PyDoc_STRVAR(Repository_add_alternate__doc__,
+    "add_alternate(path)\n"
+    "\n"
+    "Add an alternate object database.");
+
+PyObject *
+Repository_add_alternate(Repository *self, PyObject *py_path)
+{
+    int err;
+    const char *path;
+    PyObject *tpath;
+    git_odb *odb;
+
+    path = py_str_borrow_c_str(&tpath, py_path, NULL);
+    if (path == NULL)
+        return NULL;
+
+    err = git_repository_odb(&odb, self->repo);
+    if (err < 0)
+        return Error_set(err);
+
+    err = git_odb_add_disk_alternate(odb, path);
+    git_odb_free(odb);
+    if (err < 0)
+        return Error_set(err);
+
+    Py_RETURN_NONE;
+}
+
 PyMethodDef Repository_methods[] = {
     METHOD(Repository, create_blob, METH_VARARGS),
     METHOD(Repository, create_blob_fromworkdir, METH_VARARGS),
@@ -1693,6 +1722,7 @@ PyMethodDef Repository_methods[] = {
     METHOD(Repository, create_branch, METH_VARARGS),
     METHOD(Repository, blame, METH_VARARGS | METH_KEYWORDS),
     METHOD(Repository, reset, METH_VARARGS),
+    METHOD(Repository, add_alternate, METH_O),
     {NULL}
 };
 
