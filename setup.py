@@ -45,6 +45,7 @@ import platform
 from subprocess import Popen, PIPE
 import sys
 import unittest
+import fileinput
 
 # Read version from local pygit2/version.py without pulling in
 # pygit2/__init__.py
@@ -165,12 +166,16 @@ class build_ext_subclass(build_ext):
                 '-DCMAKE_INSTALL_NAME_DIR:PATH=@loader_path',
                 '-DCMAKE_INSTALL_RPATH_USE_LINK_PATH:BOOL=TRUE',
                 '-DBUILD_CLAR:BOOL=OFF',
-                '-DUSE_ICONV:BOOL=OFF',
-                '-DUSE_SSH:BOOL=OFF',  # caused iconv linking errors?
                 '../libgit2-%s' % ver,
             ]
 
             run_cmd('cmake', cmake_args)
+
+            # bug in libgit2 that is fixed with newer versions
+            for line in fileinput.input('CMakeFiles/git2.dir/flags.make',
+                                        inplace=True):
+                print(line.replace('-DGIT_USE_ICONV', ''), end='')
+
             run_cmd('make', '-j8 all install'.split())
 
             os.chdir(cwd)
