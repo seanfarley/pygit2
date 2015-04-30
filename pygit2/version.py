@@ -24,3 +24,4 @@
 # Boston, MA 02110-1301, USA.
 
 __version__ = '0.20.2'
+__sha__ = 'fa3d2625ac54d06547619bc18a83b4fb5967f3f0190191eae01ff00286cb8004'

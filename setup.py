@@ -33,10 +33,15 @@ from __future__ import print_function
 import codecs
 from distutils.core import setup, Extension, Command
 from distutils.command.build import build
+from distutils.command.build_ext import build_ext
 from distutils.command.sdist import sdist
+import distutils.spawn as ds
+import distutils.dir_util as dd
 from distutils import log
 import os
 import shlex
+import hashlib
+import platform
 from subprocess import Popen, PIPE
 import sys
 import unittest
@@ -44,7 +49,7 @@ import unittest
 # Read version from local pygit2/version.py without pulling in
 # pygit2/__init__.py
 sys.path.insert(0, 'pygit2')
-from version import __version__
+from version import __version__, __sha__
 
 # Python 2 support
 # See https://github.com/libgit2/pygit2/pull/180 for a discussion about this.
@@ -53,22 +58,15 @@ if sys.version_info[0] == 2:
 else:
     u = str
 
-
-# Use environment variable LIBGIT2 to set your own libgit2 configuration.
-libgit2_path = os.getenv("LIBGIT2")
-if libgit2_path is None:
-    if os.name == 'nt':
-        program_files = os.getenv("ProgramFiles")
-        libgit2_path = '%s\libgit2' % program_files
-    else:
-        libgit2_path = '/usr/local'
-
-libgit2_bin = os.path.join(libgit2_path, 'bin')
-libgit2_include = os.path.join(libgit2_path, 'include')
-libgit2_lib = os.getenv('LIBGIT2_LIB', os.path.join(libgit2_path, 'lib'))
 pygit2_exts = [os.path.join('src', name) for name in os.listdir('src')
                if name.endswith('.c')]
 
+platform_name = platform.system()
+shared_ext = '.so'
+if 'Windows' in platform_name:
+    shared_ext = '.dll'
+elif 'Darwin' in platform_name:
+    shared_ext = '.dylib'
 
 class TestCommand(Command):
     """Command for running unittests without install."""
@@ -102,38 +100,89 @@ class TestCommand(Command):
         unittest.main(None, defaultTest='test.test_suite', argv=test_argv)
 
 
-class BuildWithDLLs(build):
+#################
+# CMake function
+#################
+def run_cmd(cmd="cmake", cmd_args=[]):
+    """
+    Runs CMake to determine configuration for this build
+    """
+    if ds.find_executable(cmd) is None:
+        log.error("%s is required to build libgit2" % cmd)
+        log.error("Please install %s and re-run setup" % cmd)
+        sys.exit(-1)
 
-    # On Windows, we install the git2.dll too.
-    def _get_dlls(self):
-        # return a list of (FQ-in-name, relative-out-name) tuples.
-        ret = []
-        bld_ext = self.distribution.get_command_obj('build_ext')
-        compiler_type = bld_ext.compiler.compiler_type
-        libgit2_dlls = []
-        if compiler_type == 'msvc':
-            libgit2_dlls.append('git2.dll')
-        elif compiler_type == 'mingw32':
-            libgit2_dlls.append('libgit2.dll')
-        look_dirs = [libgit2_bin] + os.getenv("PATH", "").split(os.pathsep)
-        target = os.path.abspath(self.build_lib)
-        for bin in libgit2_dlls:
-            for look in look_dirs:
-                f = os.path.join(look, bin)
-                if os.path.isfile(f):
-                    ret.append((f, target))
-                    break
-            else:
-                log.warn("Could not find required DLL %r to include", bin)
-                log.debug("(looked in %s)", look_dirs)
-        return ret
+    # construct argument string
+    try:
+        ds.spawn([cmd] + cmd_args)
+    except ds.DistutilsExecError:
+        log.error("Error while running %s" % cmd)
+        log.error("run 'setup.py build --help' for build options"
+                  "You may also try editing the settings in "
+                  "CMakeLists.txt file and re-running setup")
+        sys.exit(-1)
 
-    def run(self):
-        build.run(self)
-        if os.name == 'nt':
-            # On Windows we package up the dlls with the plugin.
-            for s, d in self._get_dlls():
-                self.copy_file(s, d)
+
+class build_ext_subclass(build_ext):
+    def build_extensions(self):
+        # download and build libgit2
+        ver = __version__
+        # apparently, we use an old enough libgit2 that isn't hosted
+        if '0.20' in ver:
+            ver = '0.20.0'
+        fn = 'v%s.zip' % ver
+        url = 'https://github.com/libgit2/libgit2/archive/%s' % fn
+        cwd = os.getcwd()
+        install_path = os.path.abspath(os.path.join('build', 'libgit2'))
+
+        # only build libgit2 once
+        if not (os.path.isdir(os.path.join(install_path, 'lib')) and
+                os.path.isdir(os.path.join(install_path, 'include'))):
+
+            dd.mkpath(self.build_temp)
+            os.chdir(self.build_temp)
+
+            # download and save zip file, only if checksum doesn't match
+            sha = None
+            try:
+                sha = hashlib.sha256(open(fn, 'rb').read()).hexdigest()
+            except IOError:
+                pass
+            if sha != __sha__:
+                # TODO: replace with pure python
+                run_cmd('curl', ['-LO', url])
+
+            # TODO: replace with pure python
+            run_cmd('unzip', ['-o', fn])
+
+            dd.mkpath('build')
+            os.chdir('build')
+
+            cmake_args = [
+                '-DCMAKE_INSTALL_PREFIX:PATH=%s' % install_path,
+                '-DCMAKE_C_COMPILER:PATH=%s' % self.compiler.compiler[0],
+                '-DCMAKE_INSTALL_RPATH:PATH=@loader_path',
+                '-DCMAKE_INSTALL_NAME_DIR:PATH=@loader_path',
+                '-DCMAKE_INSTALL_RPATH_USE_LINK_PATH:BOOL=TRUE',
+                '-DBUILD_CLAR:BOOL=OFF',
+                '-DUSE_ICONV:BOOL=OFF',
+                '-DUSE_SSH:BOOL=OFF',  # caused iconv linking errors?
+                '../libgit2-%s' % ver,
+            ]
+
+            run_cmd('cmake', cmake_args)
+            run_cmd('make', '-j8 all install'.split())
+
+            os.chdir(cwd)
+
+            # post-install: move to same location as _pygit2.so
+            libs = ['libgit2.0.20.0', 'libgit2.0', 'libgit2']
+            lib_path = os.path.join(install_path, 'lib')
+            for l in libs:
+                self.copy_file(os.path.join(lib_path, l + shared_ext),
+                               os.path.abspath(self.build_lib))
+
+        build_ext.build_extensions(self)
 
 
 class sdist_files_from_git(sdist):
@@ -160,9 +209,8 @@ cmdclass = {
     'test': TestCommand,
     'sdist': sdist_files_from_git}
 
-if os.name == 'nt':
-    # BuildWithDLLs can copy external DLLs into source directory.
-    cmdclass['build'] = BuildWithDLLs
+# always bundle libgit2 shared libraries with pygit2
+cmdclass['build_ext'] = build_ext_subclass
 
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -186,8 +234,7 @@ setup(name='pygit2',
       packages=['pygit2'],
       ext_modules=[
           Extension('_pygit2', pygit2_exts,
-                    include_dirs=[libgit2_include, 'include'],
-                    library_dirs=[libgit2_lib],
-                    libraries=['git2']),
+                    include_dirs=['build/libgit2/include'],
+                    extra_link_args=['build/libgit2/lib/libgit2' + shared_ext]),
       ],
       cmdclass=cmdclass)
