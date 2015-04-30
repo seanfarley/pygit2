@@ -187,6 +187,8 @@ class build_ext_subclass(build_ext):
                 self.copy_file(os.path.join(lib_path, l + shared_ext),
                                os.path.abspath(self.build_lib))
 
+        # make sure we search our header path first
+        self.compiler.compiler_so.insert(1, '-Ibuild/libgit2/include')
         build_ext.build_extensions(self)
 
 
@@ -239,7 +241,6 @@ setup(name='pygit2',
       packages=['pygit2'],
       ext_modules=[
           Extension('_pygit2', pygit2_exts,
-                    include_dirs=['build/libgit2/include'],
                     extra_link_args=['build/libgit2/lib/libgit2' + shared_ext]),
       ],
       cmdclass=cmdclass)
