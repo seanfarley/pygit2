@@ -65,10 +65,12 @@ pygit2_exts = [os.path.join('src', name) for name in os.listdir('src')
 
 platform_name = platform.system()
 shared_ext = '.so'
+rpath = '$ORIGIN'
 if 'Windows' in platform_name:
     shared_ext = '.dll'
 elif 'Darwin' in platform_name:
     shared_ext = '.dylib'
+    rpath = '@loader_path'
 
 class TestCommand(Command):
     """Command for running unittests without install."""
@@ -163,8 +165,8 @@ class build_ext_subclass(build_ext):
             cmake_args = [
                 '-DCMAKE_INSTALL_PREFIX:PATH=%s' % install_path,
                 '-DCMAKE_C_COMPILER:PATH=%s' % self.compiler.compiler[0],
-                '-DCMAKE_INSTALL_RPATH:PATH=@loader_path',
-                '-DCMAKE_INSTALL_NAME_DIR:PATH=@loader_path',
+                '-DCMAKE_INSTALL_RPATH:PATH=' + rpath,
+                '-DCMAKE_INSTALL_NAME_DIR:PATH=' + rpath,
                 '-DCMAKE_INSTALL_RPATH_USE_LINK_PATH:BOOL=TRUE',
                 '-DBUILD_CLAR:BOOL=OFF',
                 '../libgit2-%s' % ver,
@@ -241,6 +243,8 @@ setup(name='pygit2',
       packages=['pygit2'],
       ext_modules=[
           Extension('_pygit2', pygit2_exts,
-                    extra_link_args=['build/libgit2/lib/libgit2' + shared_ext]),
+                    extra_link_args=['build/libgit2/lib/libgit2' + shared_ext],
+                    runtime_library_dirs = [rpath],
+          ),
       ],
       cmdclass=cmdclass)
