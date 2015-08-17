@@ -46,6 +46,7 @@ from subprocess import Popen, PIPE
 import sys
 import unittest
 import fileinput
+import glob
 
 # Read version from local pygit2/version.py without pulling in
 # pygit2/__init__.py
@@ -181,10 +182,9 @@ class build_ext_subclass(build_ext):
             os.chdir(cwd)
 
             # post-install: move to same location as _pygit2.so
-            libs = ['libgit2.0.20.0', 'libgit2.0', 'libgit2']
             lib_path = os.path.join(install_path, 'lib')
-            for l in libs:
-                self.copy_file(os.path.join(lib_path, l + shared_ext),
+            for l in glob.glob(os.path.join(lib_path, 'libgit*')):
+                self.copy_file(os.path.join(lib_path, l),
                                os.path.abspath(self.build_lib))
 
         # make sure we search our header path first
